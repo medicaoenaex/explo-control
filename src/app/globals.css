@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/* Identidade EXPLO CONTROL: grafite + azul-aço, acento âmbar (sinalização de segurança) */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; /* fontes do sistema: sem dependência externa */
+  --color-marca-50: #f2f5f8;
+  --color-marca-100: #e1e7ee;
+  --color-marca-200: #c3cfdc;
+  --color-marca-500: #4a6582;
+  --color-marca-600: #36506c;
+  --color-marca-700: #2a3f56;
+  --color-marca-800: #1d2c3d;
+  --color-marca-900: #121c28;
+  --color-acento-400: #f5b83d;
+  --color-acento-500: #e09a14;
+  --color-acento-600: #b97b0b;
+}
+
+:root {
+  --fundo: #f5f7fa;
+  --superficie: #ffffff;
+  --borda: #e3e8ee;
+  --texto: #18222e;
+  --texto-suave: #5b6878;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fundo: #0e151e;
+    --superficie: #151f2b;
+    --borda: #263443;
+    --texto: #e6ebf1;
+    --texto-suave: #93a1b2;
+  }
+}
+
+body {
+  background: var(--fundo);
+  color: var(--texto);
+  font-feature-settings: "tnum" 1; /* números tabulares para tabelas */
+}
+
+.superficie { background: var(--superficie); border-color: var(--borda); }
+.borda { border-color: var(--borda); }
+.texto-suave { color: var(--texto-suave); }
