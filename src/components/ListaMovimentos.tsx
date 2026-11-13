@@ -4,11 +4,13 @@ import { formatarData, formatarQtd } from "@/lib/formato";
 import { STATUS_MOV, TIPO_MOV } from "@/lib/rotulos";
 import { Campo, estiloInput, Filtros, Selo, Tabela } from "@/components/ui";
 
-/** Histórico de movimentações (somente leitura nesta etapa). */
-export async function ListaMovimentos({ tipos, unidadeIds, f }: {
+/** Histórico de movimentações, com validação opcional dos pendentes. */
+export async function ListaMovimentos({ tipos, unidadeIds, f, validar }: {
   tipos: TipoMovimento[];
   unidadeIds: string[];
   f: { status?: string; de?: string; ate?: string; documento?: string };
+  /** Quando informado, lançamentos pendentes ganham o botão "Validar". */
+  validar?: { action: (fd: FormData) => Promise<void>; pode: (unidadeId: string, criadoPorId: string) => boolean };
 }) {
   const status = f.status && f.status in STATUS_MOV ? (f.status as StatusMovimento) : undefined;
   const movs = await prisma.movimento.findMany({
@@ -47,7 +49,12 @@ export async function ListaMovimentos({ tipos, unidadeIds, f }: {
           { titulo: "Documento", celula: (m) => m.documento ?? "—" },
           { titulo: "Quantidade", alinhar: "direita", celula: (m) => <b>{formatarQtd(m.quantidade.abs())} <span className="texto-suave font-normal">{m.produtoUnidade.produto.unidadeMedida.sigla}</span></b> },
           { titulo: "Responsável", celula: (m) => <span className="text-xs">{m.criadoPor.nome}{m.validadoPor && <span className="texto-suave block">validado: {m.validadoPor.nome}</span>}</span>, ocultarMobile: true },
-          { titulo: "Situação", celula: (m) => <Selo tom={STATUS_MOV[m.status].tom}>{STATUS_MOV[m.status].rotulo}</Selo> },
+          { titulo: "Situação", celula: (m) => <span className="flex flex-wrap items-center gap-2"><Selo tom={STATUS_MOV[m.status].tom}>{STATUS_MOV[m.status].rotulo}</Selo>
+            {validar && m.status === "PENDENTE" && validar.pode(m.produtoUnidade.unidadeId, m.criadoPorId) && (
+              <form action={validar.action}><input type="hidden" name="id" value={m.id} />
+                <button className="bg-marca-700 hover:bg-marca-800 rounded-md px-2 py-1 text-xs font-medium text-white">Validar</button>
+              </form>
+            )}</span> },
         ]}
       />
     </>
