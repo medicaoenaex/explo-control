@@ -11,11 +11,11 @@ Você vai **continuar** o desenvolvimento de um sistema chamado **EXPLO CONTROL*
 **Resumo em uma linha:** sistema web (Next.js 15 + TypeScript + PostgreSQL + Prisma + Tailwind + Zod, login próprio com sessão no banco) para controlar estoque, entradas, transferências e consumo de materiais controlados de mineração em duas unidades com CNPJs diferentes (Paiol Peneirinha, que produz emulsão, e Paiol Pico, que consome na Mina Pico), com estoque por unidade e consolidado **sem duplicar transferências** (consolidado = disponível + em trânsito).
 
 **Onde paramos:**
-- Etapa 1 pronta: modelo de dados, regras de estoque e transferência no servidor (17 testes passando), login com 4 perfis, painel e telas de **consulta**. Faltam as telas de **cadastro e lançamento** (as regras já existem; falta a interface).
-- Publicado como demonstração em Vercel (grátis) + Supabase (grátis, schema `explo` dentro do projeto `paiol-desmonte`). O site publicado mostra "Application error"; a suspeita principal é que o endereço testado não seja o domínio de produção real (detalhes na seção 12 do HANDOFF).
-- O dono pediu para **zerar os dados de demonstração** e começar a **lançar entradas reais**; isso começou a ser planejado mas não há confirmação de que algo foi apagado (seção 13 do HANDOFF).
+- Etapa 1 pronta (modelo de dados, regras de estoque com testes, login com 4 perfis, painel e consultas). Depois vieram as telas de **Nova entrada** (com validação por outra pessoa), **Nova transferência** (direta: sai da origem e entra no destino na hora, regra mudada a meu pedido), **Novo consumo**, **Notas fiscais** (linha do tempo com pesquisa) e **Sicoex** (confronto do saldo do Sicoex com o saldo diário). São 20 testes.
+- Os dados de demonstração foram zerados; já há lançamentos reais (a primeira entrada foi de 500 kg no Paiol Pico). Usuários, empresas e produtos ainda têm nomes e senhas de demonstração.
+- Site: **https://explo-control.vercel.app** (Vercel grátis) com banco no Supabase grátis (schema `explo` dentro do projeto `paiol-desmonte`). A produção da Vercel estava **travada numa versão antiga** (precisa de Promote / Undo Rollback; seção 12 do HANDOFF). As versões de teste dos pedidos de alteração usam o mesmo banco real.
 - A especificação original foi recebida **só até o item 12 (Produção), cortada**. Peça o restante ao dono.
-- Há **4 pontos de regra** esperando a validação do dono (seção 9 do HANDOFF).
+- Há **perguntas de regra** esperando a resposta do dono (seção 9 do HANDOFF).
 
 **Como trabalhar comigo (o dono do projeto):**
 - Fale em **português** e de forma simples: **não sou técnico**. Quando eu precisar fazer algo, diga exatamente onde clicar, um passo de cada vez.
@@ -29,5 +29,5 @@ Você vai **continuar** o desenvolvimento de um sistema chamado **EXPLO CONTROL*
 
 **Primeira tarefa:** depois de ler o HANDOFF e o código, me responda com:
 1. um resumo curto, em linguagem simples, do que o sistema já faz e do que falta;
-2. o que você precisa de mim para (a) colocar o site publicado para funcionar e (b) começar a Etapa 2 (telas de cadastro e de lançamento de entradas, consumo e transferências);
-3. as 4 perguntas de regra pendentes, para eu responder.
+2. o que você precisa de mim para (a) garantir que o site principal mostra a versão mais nova e (b) trocar as senhas e cadastrar os dados reais (telas de cadastro de produtos, empresas e usuários);
+3. as perguntas de regra pendentes, para eu responder.

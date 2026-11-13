@@ -1,8 +1,22 @@
 # EXPLO CONTROL — Documento de passagem do projeto
 
-Situação em **13/11/2026**. Este documento reúne tudo o que foi feito até agora, para que outra pessoa (ou outro Claude) continue o trabalho sem precisar reconstruir o contexto.
+Situação em **13/11/2026, fim da tarde** (atualizado depois dos PRs 7 a 11). Este documento reúne tudo o que foi feito até agora, para que outra pessoa (ou outro Claude) continue o trabalho sem precisar reconstruir o contexto.
 
 > **Segurança:** este documento não contém senhas, endereços de conexão nem chaves. Onde um valor secreto é necessário, ele indica **o nome da variável e onde obtê-la**.
+
+---
+
+## Resumo do que foi feito (13/11/2026)
+
+1. **Etapa 1 (manhã):** arquitetura, modelo de dados, regras de estoque e transferência com testes, login com perfis, painel e telas de consulta, com dados fictícios.
+2. **Código no GitHub** (`medicaoenaex/explo-control`) e **publicação gratuita**: banco no Supabase (schema `explo` dentro do projeto `paiol-desmonte`) e site na Vercel.
+3. **Correções de publicação (PRs 1 a 5):** variáveis de conexão, região São Paulo, pool de conexões, seed resistente à lentidão e página de autodiagnóstico.
+4. **Documento de passagem (PR 6)** para levar o projeto a outra conta.
+5. **Dados de demonstração zerados** e **tela Nova entrada** com validação (PR 7).
+6. **Transferência direta** entre paióis, que entra no destino na hora, a pedido do Rodrigo (PR 8), e que aparece também em Entradas do destino (PR 9).
+7. **Linha do tempo das notas fiscais** com pesquisa (PR 10).
+8. **Novo consumo** e **aba Sicoex** para conferir o saldo do Sicoex com o saldo diário (PR 11).
+9. **Pendente:** destravar a produção na Vercel (Promote/Undo Rollback), trocar senhas, cadastrar os dados reais e receber o restante da especificação.
 
 ---
 
@@ -82,7 +96,12 @@ src/middleware.ts             sem cookie de sessão → /login (exceto /login e 
 src/app/(app)/                telas autenticadas
 src/app/login/                tela de login
 src/app/diagnostico/          autoteste do ambiente (ver seção 10)
-tests/estoque.test.ts         17 testes das regras
+src/server/sicoex.ts          confronto com o Sicoex
+src/app/(app)/entradas/nova   Nova entrada (consumo usa o mesmo formulário em consumo/novo)
+src/app/(app)/transferencias/nova   Nova transferência (direta)
+src/app/(app)/notas/          linha do tempo das notas fiscais
+src/app/(app)/sicoex/         aba Sicoex
+tests/estoque.test.ts         20 testes das regras
 vercel.json                   região das funções: gru1 (São Paulo)
 ```
 
@@ -98,6 +117,7 @@ vercel.json                   região das funções: gru1 (São Paulo)
 - **Transferencia** (código `TRF-AAAA-000001`, status, origem/destino, **CNPJs gravados no envio**, documento, responsáveis e datas de criação/envio/recebimento/cancelamento) + **TransferenciaItem** (produto, lote, enviada, recebida, resolução de divergência, justificativa, aprovado por).
 - **FechamentoSemanal** (unidade, semana, status `ABERTO | EM_CONFERENCIA | FECHADO`) — só o modelo; a tela ainda não existe.
 - **Auditoria** (usuário, ação, entidade, dados JSON) — **somente inserção**: um trigger no banco bloqueia UPDATE e DELETE.
+- **SaldoSicoex** (PR 11): saldo informado no Sicoex por paiol × produto × data (único por essa combinação), com observações e quem registrou. Serve só para confronto; não altera o estoque.
 - Quase todas as tabelas têm `demonstracao: Boolean` para marcar dados fictícios.
 
 Restrições no banco (migração inicial): origem ≠ destino; quantidade enviada > 0; recebida ≥ 0; movimento ≠ 0; **sinal do movimento coerente com o tipo**; trigger `auditoria_imutavel`.
@@ -110,17 +130,20 @@ Restrições no banco (migração inicial): origem ≠ destino; quantidade envia
 4. Bloqueia movimentação de **produto não vinculado**, **produto inativo** (no catálogo ou na unidade) e **unidade inativa**.
 5. **Lote:** produto com controle de lote exige lote, e o saldo é conferido por lote; produto sem controle não aceita lote.
 6. **Entrada duplicada** (mesmo documento + produto + unidade + lote) é bloqueada.
-7. **Transferência:**
+7. **Transferência direta (regra em uso desde o PR 8, a pedido do Rodrigo):** pela tela, a transferência é feita numa única operação (`transferirDireto`): confere vínculo ativo na origem **e no destino**, trava e confere o saldo da origem (somando linhas repetidas), **debita a origem e credita o destino na mesma hora** e grava a transferência já como **Recebida**, com código, nota fiscal, CNPJs, itens, movimentos de saída e entrada ligados ao item e auditoria (`TRANSFERENCIA_DIRETA`). Não há "em trânsito" nem conferência nesse caminho. Exige permissão `transferencia.enviar` na origem (Admin ou Gestor; o Operador não pode).
+   - A transferência também aparece na tela **Entradas** do paiol de destino como "Transferência de <origem>" (PR 9). É só exibição: o saldo entra uma única vez.
+8. **Fluxo completo com trânsito (regra original, ainda no código e nos testes, mas sem tela):**
    - criar (Rascunho) → solicitar envio (Pendente de envio) → **enviar**: confere vínculo ativo **no destino** e saldo na origem (somando linhas repetidas do mesmo produto), **debita a origem** e o status vira **Em trânsito**;
    - destino registra chegada (Aguardando conferência) → **confirma recebimento** informando a quantidade conferida de **cada** item; **quem enviou não pode confirmar**;
    - o destino recebe crédito do recebido (limitado ao enviado).
-8. **Consolidado = disponível nas unidades + em trânsito.** Transferência interna não altera o total do grupo.
-9. **Divergências:** qualquer diferença deixa a transferência **Divergente**.
+9. **Consolidado = disponível nas unidades + em trânsito.** Transferência interna não altera o total do grupo (com a transferência direta, o trânsito fica sempre zero).
+10. **Divergências (só no fluxo com trânsito):** qualquer diferença deixa a transferência **Divergente**.
    - **Falta:** continua contada como em trânsito até análise; a análise escolhe **ajuste aprovado** (a perda sai do grupo) ou **retorno à origem** (volta ao saldo da origem).
    - **Sobra:** só entra no estoque do destino após aprovação; não pode ser "retorno à origem".
    - Justificativa obrigatória (mín. 10 caracteres). Quando todos os itens estão resolvidos, vira **Recebida**.
-10. **Cancelamento** só antes do envio (Rascunho ou Pendente de envio). Depois de enviada, a correção é via divergência.
-11. **Auditoria** em todas as ações.
+11. **Cancelamento** (fluxo com trânsito) só antes do envio. Uma transferência direta não tem cancelamento pela tela; a correção seria uma transferência no sentido inverso.
+12. **Sicoex (PR 11, `src/server/sicoex.ts`):** no Sicoex (sistema do Exército para produtos controlados) as baixas são lançadas só no dia do desmonte, enquanto no EXPLO CONTROL o consumo é diário. Por isso o saldo Sicoex de uma data é comparado com o **saldo diário do sistema no fim daquele mesmo dia** (horário de Brasília). A tela mostra **Confere** ou a diferença (Sicoex − diário) em vermelho, e também o **consumo diário lançado depois dessa data**, que ainda falta lançar no próximo desmonte. Registrar de novo a mesma data corrige o valor (fica na auditoria como `SICOEX_CORRIGIDO`).
+13. **Auditoria** em todas as ações.
 
 ### Permissões (`src/server/permissoes.ts`)
 
@@ -133,45 +156,64 @@ Restrições no banco (migração inicial): origem ≠ destino; quantidade envia
 
 ## 7. Telas
 
-**Prontas (consulta):** Login · Painel (indicadores + filtros por período, CNPJ, unidade, categoria, produto) · Estoque por unidade · Estoque consolidado · Produtos e materiais (matriz Peneirinha × Pico) · Empresas e unidades · Transferências · histórico de Entradas · histórico de Consumo. Menu lateral no computador, menu deslizante no celular; cabeçalho com usuário, seletor de unidade, pesquisa rápida e sino de pendências.
+**Prontas para uso:**
+
+- **Login** e **Painel** (indicadores + filtros por período, CNPJ, unidade, categoria, produto).
+- **Estoque por unidade** e **Estoque consolidado**.
+- **Entradas** (PR 7): lista + botão **Nova entrada** (paiol e produto, quantidade em formato brasileiro como `1.250,5`, data, nota fiscal, fornecedor, lote, observações). A entrada fica **pendente** e só soma no estoque depois que alguém clica em **Validar** na lista (quem lançou não valida, exceto o Admin). Também lista as **entradas por transferência** no paiol de destino (PR 9).
+- **Transferências** (PR 8): lista + botão **Nova transferência** (paiol de origem e de destino, data, nota fiscal, um ou mais materiais com o saldo visível). Ao clicar em **Transferir**, sai da origem e entra no destino na hora.
+- **Consumo** (PR 11): lista + botão **Novo consumo** (mesmo formulário da entrada, tipo consumo). Fica pendente até a validação; a baixa é bloqueada se não houver saldo.
+- **Notas fiscais** (PR 10): linha do tempo de cada nota fiscal (entradas, validações, transferências e consumos ligados ao mesmo número de documento), com data, hora e responsável. Pesquisa por número da nota, produto, código, lote ou fornecedor, com filtro por paiol e por período.
+- **Sicoex** (PR 11): registro do saldo do Sicoex por paiol, produto e data, e quadro de confronto com o saldo diário (ver regra 12).
+- **Produtos e materiais** (matriz Peneirinha × Pico, só consulta) e **Empresas e unidades** (só consulta).
+
+Menu lateral no computador, menu deslizante no celular; cabeçalho com usuário, seletor de unidade, pesquisa rápida e sino de pendências.
 
 **Placeholders ("em breve"):** Produção, Inventário, Fechamento semanal, Relatórios.
 
-**Ainda não existem:** formulários de **cadastro** (empresas, unidades, produtos, vínculos, usuários) e de **lançamento** (entrada, consumo, transferência, recebimento, análise de divergência), **anexos**, importação de Excel. As **regras** desses lançamentos já existem e estão testadas; falta a interface.
+**Ainda não existem:** telas de **cadastro** (empresas, unidades, produtos, vínculos, usuários e senhas), **anexo** do documento na entrada, importação de Excel e importação de arquivo do Sicoex. Por isso os produtos e as empresas continuam com os **nomes de demonstração** até alguém ajustar pelo banco ou até a tela de cadastro existir.
 
 Capturas de tela da Etapa 1 estão na pasta `etapa1-telas/` (login, painel, consolidado, produtos, transferências, celular).
 
 ## 8. Testes
 
-`npm test` roda **17 testes** (Vitest), todos passando na entrega da Etapa 1. Usam um banco separado (`TEST_DATABASE_URL`, padrão `postgresql://…@localhost:5432/explo_control_test`); o setup aplica as migrações e limpa as tabelas.
+`npm test` roda **20 testes** (Vitest). Usam um banco separado (`TEST_DATABASE_URL`, padrão `postgresql://…@localhost:5432/explo_control_test`); o setup aplica as migrações e limpa as tabelas.
 
-Cobrem: entrada pendente não altera saldo; segregação na validação; consumo acima do saldo; duas baixas simultâneas; produto não vinculado; produto inativo numa unidade; controle por lote; entrada duplicada; permissões por perfil e unidade; envio → trânsito → recebimento sem mudar o total; envio sem vínculo no destino; envio acima do saldo somando linhas; envio duplo e segregação no recebimento; falta com ajuste aprovado; falta com retorno à origem; sobra só após aprovação; transferência no sentido inverso.
+Cobrem: entrada pendente não altera saldo; segregação na validação; consumo acima do saldo; duas baixas simultâneas; produto não vinculado; produto inativo numa unidade; controle por lote; entrada duplicada; permissões por perfil e unidade; fluxo com trânsito (envio → trânsito → recebimento sem mudar o total; sem vínculo no destino; acima do saldo; envio duplo; falta com ajuste aprovado; falta com retorno à origem; sobra só após aprovação; sentido inverso); **transferência direta** (debita e credita na hora, com rastreio; bloqueia saldo insuficiente, produto sem vínculo no destino e operador sem permissão); **Sicoex** (compara com o saldo diário na mesma data e mostra o consumo a lançar).
 
 Observação: o Prisma bloqueia `migrate reset` quando executado por agentes de IA; por isso os testes usam `migrate deploy` + `TRUNCATE`.
 
 ## 9. Pontos de regra pendentes de validação pelo Rodrigo
 
-Ainda **sem resposta**:
+Perguntas da Etapa 1, ainda **sem resposta formal**:
 
 1. **Validação por outra pessoa:** quem lança uma entrada ou consumo não pode validá-lo (o administrador pode). Isso atende a rotina dos paióis?
-2. **Quem confere o recebimento:** hoje operador e gestor do destino podem conferir. Deve ficar só com o gestor?
-3. **Sobra no recebimento:** pode acontecer na prática, ou deve ser bloqueada de vez?
-4. **Cancelamento:** só antes do envio; depois, a correção é pela análise de divergência. Está de acordo?
+2. **Quem confere o recebimento:** *em parte superada.* Com a transferência direta (PR 8) não há conferência no destino. Falta confirmar se a conferência deve voltar como opção.
+3. **Sobra no recebimento:** *superada enquanto a transferência for direta* (não há quantidade recebida diferente da enviada).
+4. **Cancelamento:** só antes do envio. Com a transferência direta, desfazer exige uma transferência inversa. Está de acordo?
 
-## 10. Infraestrutura e publicação (demonstração)
+Novas perguntas abertas:
+
+5. **Sicoex:** o Sicoex permite exportar um arquivo (planilha ou PDF)? Se sim, enviar um exemplo para fazer a importação automática em vez de digitar saldo por saldo.
+6. **Dados reais:** lista real de materiais (códigos, descrições, unidade de medida, controle de lote) e dados reais das duas empresas (razão social, CNPJ) para substituir os nomes de demonstração.
+
+## 10. Infraestrutura e publicação
 
 ### Repositório
 - GitHub: **`medicaoenaex/explo-control`** (privado), branch `main`.
 
 ### Banco de dados (Supabase, plano gratuito)
 - O Supabase do Rodrigo já estava no limite de 2 projetos gratuitos. Por escolha dele, o banco do EXPLO CONTROL fica **dentro do projeto Supabase `paiol-desmonte`**, num **schema separado chamado `explo`**, com uma **role própria `explo_app`** (dona do schema). As tabelas que já existiam nesse projeto **não foram tocadas**.
-- A senha do `explo_app` **não está neste documento**. Para obtê-la ou trocá-la: painel do Supabase → projeto `paiol-desmonte` → SQL Editor (`ALTER ROLE explo_app WITH PASSWORD '…'`), ou peça ao Rodrigo. O host do pooler aparece em **Connect** no topo do projeto (o que funcionou foi **`aws-0-sa-east-1.pooler.supabase.com`**; `aws-1` deu "tenant not found").
-- ⚠️ **Recomendação:** a senha atual do `explo_app` chegou a ser enviada em texto numa conversa. **Troque-a** (e atualize as variáveis na Vercel) antes de usar dados reais.
+- A senha do `explo_app` **não está neste documento**. Para obtê-la ou trocá-la: painel do Supabase → projeto `paiol-desmonte` → SQL Editor (`ALTER ROLE explo_app WITH PASSWORD '…'`), ou peça ao Rodrigo. O host do pooler aparece em **Connect** no topo do projeto (o que funciona é **`aws-0-sa-east-1.pooler.supabase.com`**; `aws-1` dá "tenant not found").
+- ⚠️ **Recomendação:** a senha atual do `explo_app` chegou a ser enviada em texto numa conversa. **Troque-a** (e atualize as variáveis na Vercel) agora que há dados reais.
 
 ### Hospedagem (Vercel, plano Hobby gratuito)
-- Projeto Vercel `explo-control`, conta pessoal do Rodrigo, importado do GitHub. Cada merge na `main` dispara um deploy.
-- O script `vercel-build` roda: `prisma migrate deploy` → seed de demonstração **se `SEED_DEMO=1`** → `next build`.
-- `vercel.json` define a região das funções como `gru1` (São Paulo), perto do banco. O **build** em si continua rodando em `iad1` (EUA), o que é normal.
+- Projeto Vercel `explo-control` na conta `rodrigo-050b`, importado do GitHub.
+- **Endereço de produção correto: https://explo-control.vercel.app** (o endereço `explo-control-rodrigo-050b.vercel.app`, usado antes, foi um palpite errado e mostrava uma versão antiga).
+- Página de deploys: https://vercel.com/rodrigo-050b/explo-control/deployments
+- O script `vercel-build` roda: `prisma migrate deploy` → seed de demonstração **se `SEED_DEMO=1`** → `next build`. Desde o PR 7 o seed **só popula um banco totalmente vazio** (sem nenhuma empresa); nunca apaga nem recria nada.
+- ⚠️ **Toda versão de teste (Preview) de um pedido de alteração usa o MESMO banco da produção** e roda `prisma migrate deploy` nele. Foi assim que o "zerar" do PR 7 aconteceu antes do merge. Qualquer migração nova num PR vale para o banco real assim que a prévia for publicada. Para evitar isso, configure variáveis diferentes para o ambiente Preview (outro banco) na Vercel.
+- `vercel.json` define a região das funções como `gru1` (São Paulo), perto do banco. O **build** roda em `iad1` (EUA), o que é normal.
 
 ### Variáveis de ambiente (somente os nomes)
 
@@ -179,13 +221,13 @@ Ainda **sem resposta**:
 |---|---|---|
 | `DATABASE_URL` | Conexão com **pool** (porta 6543), com `?pgbouncer=true&connection_limit=1&schema=explo` | Supabase → Connect → Transaction pooler (usuário `explo_app.<ref do projeto>`), senha do `explo_app` |
 | `DIRECT_URL` | Conexão **direta/sessão** (porta 5432), com `?schema=explo`; usada pelas migrações | Supabase → Connect → Session pooler, mesmo usuário e senha |
-| `SEED_DEMO` | `1` cria os dados fictícios no build se o banco estiver vazio; `0` desliga | Definir na Vercel → Settings → Environment Variables |
+| `SEED_DEMO` | `1` popula a demonstração no build **só se o banco estiver vazio**; `0` desliga | Vercel → Settings → Environment Variables |
 | `TEST_DATABASE_URL` | (opcional, só local) banco de testes | Postgres local |
 
-Não há outras variáveis secretas (o login não usa `AUTH_SECRET`; é sessão própria no banco).
+Não há outras variáveis secretas (o login não usa `AUTH_SECRET`; é sessão própria no banco). A página `/diagnostico` só funciona enquanto `SEED_DEMO=1`.
 
-### Usuários de demonstração (dados fictícios)
-Senha de demonstração `Demo@2026` (é fictícia e pública no código do seed): `admin@demo.explo`, `gestor.peneirinha@demo.explo`, `gestor.pico@demo.explo`, `operador.peneirinha@demo.explo`, `operador.pico@demo.explo`, `consulta@demo.explo`. Empresas, CNPJs e produtos da demonstração são inventados e marcados com "(demo)".
+### Usuários
+Os usuários continuam sendo os da demonstração, com a senha fictícia `Demo@2026` (pública no código do seed): `admin@demo.explo`, `gestor.peneirinha@demo.explo`, `gestor.pico@demo.explo`, `operador.peneirinha@demo.explo`, `operador.pico@demo.explo`, `consulta@demo.explo`. **Como já há lançamentos reais, essas senhas precisam ser trocadas** (ainda não há tela para isso; pode ser feito gerando um hash bcrypt e atualizando `Usuario.senhaHash`, ou criando a tela de usuários).
 
 ## 11. Histórico de PRs
 
@@ -193,57 +235,52 @@ Senha de demonstração `Demo@2026` (é fictícia e pública no código do seed)
 |---|---|---|
 | — | `main` (commit inicial) | **Etapa 1**: arquitetura, modelo de dados, regras de estoque com 17 testes, login, layout responsivo, painel e telas de consulta, seed de demonstração |
 | 1 | `preparar-publicacao` | `DIRECT_URL` para bancos com pool; `prisma generate` no install; script `vercel-build` que aplica migrações e roda o seed opcionalmente |
-| 2 | `seed-falha-visivel` | Build falha se o seed falhar (antes o erro era engolido); região `gru1`; pool com folga (mín. 5 conexões, 20 s de espera) para o painel |
-| 3 | `seed-lento` | Seed resiste à latência do banco remoto (transações com timeout maior) e **recria a demonstração se estiver incompleta** (só apaga se tudo no banco for de demonstração) |
-| 4 | `painel-diagnostico` | Painel faz as consultas **em sequência** (antes 13 em paralelo) e mostra o erro técnico na tela em vez do erro genérico |
-| 5 | `autodiagnostico` | Página **`/diagnostico`** (testa o banco item a item, sem login) e registro de erros de servidor na Auditoria (`instrumentation.ts`) |
+| 2 | `seed-falha-visivel` | Build falha se o seed falhar (antes o erro era engolido); região `gru1`; pool com folga (mín. 5 conexões, 20 s de espera) |
+| 3 | `seed-lento` | Seed resiste à latência do banco remoto e recria a demonstração se estiver incompleta |
+| 4 | `painel-diagnostico` | Painel faz as consultas em sequência e mostra o erro técnico na tela |
+| 5 | `autodiagnostico` | Página **`/diagnostico`** (testa o banco item a item, sem login) e registro de erros de servidor na Auditoria |
+| 6 | `claude/project-thread-rbmw3e` | Este documento de passagem (`HANDOFF.md`) e o prompt de continuação (`PROMPT-CONTINUACAO.md`); só documentação |
+| 7 | `entradas-lancamento` | Tela **Nova entrada** e botão **Validar**; migração `20261113170000_zerar_demonstracao` que **zera** movimentos, transferências, lotes, fechamentos, auditoria e sessões (mantém usuários, empresas, unidades e catálogo); seed passa a rodar só em banco vazio |
+| 8 | `transferencia-direta` | **Mudança de regra pedida pelo Rodrigo:** tela **Nova transferência** que debita a origem e credita o destino na hora (sem trânsito nem conferência), mantendo código, nota fiscal, CNPJs e auditoria |
+| 9 | `entrada-por-transferencia` | Transferências aparecem também na tela **Entradas** do paiol de destino, como "Transferência de <origem>", sem duplicar saldo |
+| 10 | `linha-do-tempo-nf` | Tela **Notas fiscais**: linha do tempo de cada nota com pesquisa por nota, produto, lote, fornecedor, paiol e período |
+| 11 | `sicoex` | Tela **Novo consumo** e aba **Sicoex** (tabela `SaldoSicoex`, migração `20261113180000_saldo_sicoex`) para confrontar o saldo do Sicoex com o saldo diário |
 
-Todos os 5 foram mesclados na `main` em 13/11/2026.
+Os PRs 1 a 5 e 7 a 11 foram mesclados na `main` em 13/11/2026. O PR 6 (este documento) fica aberto até o Rodrigo aprovar.
 
-## 12. Problema em aberto: site em produção com "Application error"
+## 12. Problema em aberto: produção da Vercel travada numa versão antiga
 
-**Sintoma:** ao abrir o site publicado, aparece "Application error: a server-side exception has occurred" (vários digests diferentes ao longo do dia: 3241491760, 2829780947, 1979312599).
+**Sintoma:** o código novo (PRs 7 a 11) está na `main` e as versões de teste funcionam, mas **https://explo-control.vercel.app** continuava servindo uma versão antiga: a tela Entradas sem o botão **Nova entrada**, `/diagnostico` com 404 (ou seja, anterior ao PR 5) e, às 14:40 (horário de Brasília), "Application error" (digest 752969169).
 
-**O que já se sabe:**
-- O build passa: as migrações são aplicadas e o deploy conclui.
-- Logs iniciais mostraram erros `PrismaClientKnownRequestError` em várias consultas diferentes, compatíveis com **fila de conexões** (pool com 1 conexão) e com **dados de demonstração pela metade** (o primeiro seed estourou o tempo com `P2028 Transaction not found`). Os PRs 2 a 4 atacaram isso.
-- Uma réplica do ambiente da Vercel montada pelo Claude (build + start contra um Postgres) **abriu todas as telas normalmente**.
-- No build do PR 5 o seed disse **"O banco já possui dados. Nada a fazer."** Pela lógica do seed, isso significa que já existe um fechamento semanal (última etapa do seed), ou seja, uma execução anterior provavelmente completou a demonstração. Não foi confirmado olhando o banco.
-- Depois do PR 5, **`/diagnostico` deu 404** no endereço testado, mesmo com o log do build mostrando que a rota existe. Como o middleware libera `/diagnostico`, um 404 indica que **aquele endereço não está servindo o deploy mais novo**.
+**Causa provável:** em algum momento um deploy antigo foi **promovido** ou houve um **rollback** manual na Vercel. Depois disso, a Vercel **para de atualizar a produção sozinha** a cada merge, até alguém promover de novo.
 
-**Suspeita principal:** o endereço **`explo-control-rodrigo-050b.vercel.app` foi um palpite** do Claude, não o domínio de produção confirmado. O endereço `explo-control-4mtjg6qzy-rodrigo-050b.vercel.app` é a URL fixa de um deploy **antigo**. Isso explicaria os PRs 2 a 5 "sem efeito".
+**Como resolver (um clique na Vercel):**
+1. Abrir https://vercel.com/rodrigo-050b/explo-control/deployments
+2. Se aparecer um aviso no topo com **Undo Rollback**, clicar nele. Senão, na **primeira** linha da lista (a mais recente, do commit `4712daa`, "Merge pull request #11"), clicar nos **três pontinhos (…)** → **Promote** (ou **Promote to Production**) e confirmar.
+3. Abrir https://explo-control.vercel.app/entradas e conferir o botão **Nova entrada**; abrir `/diagnostico` para ver se o banco responde.
 
-**Próximo passo para fechar o diagnóstico:**
-1. Na Vercel, abrir o projeto `explo-control` → aba **Overview** → ver o domínio em **Domains** (ou clicar em **Visit**). Esse é o endereço real.
-2. Abrir `<domínio real>/diagnostico` e ler a tabela. Atenção: a página só funciona enquanto `SEED_DEMO=1`; com `SEED_DEMO=0` em produção ela mostra apenas "Diagnóstico disponível apenas no ambiente de demonstração".
-3. Se tudo estiver ✅ e o site abrir, o problema era o endereço. Se houver ❌, a mensagem diz o que corrigir.
-4. Alternativa: Deployments → confirmar que o deploy mais recente (commit `cda045c`, "Merge pull request #5") está marcado como **Production** e **Ready**.
+Até isso ser feito, o Rodrigo pode usar a **versão de teste** do último PR (o link "Preview" que a Vercel publica no pedido de alteração), que usa o mesmo banco. Não foi confirmado, até a escrita deste documento, se o Promote já foi feito.
 
-## 13. Trabalho que estava em andamento
+**Histórico do erro anterior ("Application error" no começo do dia):** o primeiro seed estourou o tempo (`P2028`) e deixou a demonstração pela metade; o pool tinha 1 conexão e o painel fazia 13 consultas em paralelo. Os PRs 2 a 4 corrigiram isso. A maior parte do "vai e volta" seguinte foi causada por endereços errados (`…-4mtjg6qzy-rodrigo-050b.vercel.app` e `explo-control-rodrigo-050b.vercel.app`) que apontavam para deploys antigos.
 
-Pouco antes desta passagem, o Rodrigo pediu para **zerar todas as informações de demonstração** para começar a **lançar entradas reais**. O plano registrado era:
+## 13. Estado dos dados
 
-1. Apagar movimentações, transferências, lotes e fechamentos de demonstração (mantendo um usuário admin para login e, se fizer sentido, empresas/unidades/catálogo como estrutura — **confirmar com o Rodrigo o que fica**).
-2. Desligar `SEED_DEMO` (pôr `0` na Vercel) para a demonstração não ser recriada no próximo deploy.
-3. Criar a **tela de lançamento e validação de entradas** (e de cadastro de produtos/vínculos, se necessário).
-4. Testar e publicar.
-
-**Estado:** o primeiro passo estava marcado como "em andamento" quando o trabalho parou. **Não há confirmação de que algum dado foi apagado**, e nenhum código dessa etapa foi enviado ao GitHub. Antes de qualquer coisa, verifique o estado do banco (via `/diagnostico` ou pelo SQL Editor do Supabase, no schema `explo`).
-
-Cuidados para o "zerar":
-- A tabela `Auditoria` **não aceita DELETE** (trigger). Para limpá-la seria preciso `TRUNCATE` (que não dispara o trigger de linha) ou desativar o trigger conscientemente; o mais seguro é **manter a auditoria**.
-- Os dados reais precisarão de **empresas e CNPJs reais**, unidades reais e usuários reais com senhas próprias. Os usuários `@demo.explo` com a senha pública devem ser **removidos ou desativados** antes do uso real.
-- O seed só roda se o banco estiver vazio ou com demonstração incompleta; com `SEED_DEMO=0` ele não roda.
+- **Zerado em 13/11/2026 (~16:52 UTC)** pela migração do PR 7: 0 movimentações e 0 transferências naquele momento; auditoria e sessões também foram limpas.
+- **Mantidos:** usuários de demonstração, as duas empresas e unidades (com nomes "DEMO …" e CNPJs fictícios) e o catálogo de produtos de demonstração (descrições terminando em "(demo)").
+- **Primeiro lançamento real:** uma entrada **validada de 500 kg no Paiol Pico** (feita pela versão de teste).
+- Desde então o Rodrigo pode ter lançado mais entradas, transferências, consumos e saldos Sicoex. Para ver o estado atual: tela Painel/Estoque, `/diagnostico`, ou o SQL Editor do Supabase no schema `explo`.
+- A tabela `Auditoria` não aceita UPDATE/DELETE (trigger); só `TRUNCATE` a limpa.
 
 ## 14. Próximos passos sugeridos
 
-1. **Resolver o acesso ao site** (seção 12): descobrir o domínio real e ler `/diagnostico`.
-2. **Trocar a senha do `explo_app`** e atualizar as variáveis na Vercel.
-3. **Obter do Rodrigo**: o restante do prompt mestre (item 12 em diante) e as respostas aos 4 pontos da seção 9.
-4. **Etapa 2** (sugerida): telas de cadastro (empresas, unidades, produtos, vínculos, usuários) + **lançamento e validação de entradas com anexo** + consumo + criação/envio/recebimento de transferências e análise de divergências pela tela. As regras de servidor já existem; é ligar formulários (Server Actions) a `registrarLancamento`, `validarLancamento`, `criarTransferencia`, `enviarTransferencia`, `registrarChegada`, `confirmarRecebimento`, `resolverDivergencia`, `cancelarTransferencia`.
-5. **Zerar a demonstração** de forma controlada e desligar `SEED_DEMO`.
-6. Etapas seguintes: produção de emulsão (movimentos `PRODUCAO_ENTRADA`/`PRODUCAO_CONSUMO` já previstos), inventário (`AJUSTE_INVENTARIO`), fechamento semanal, relatórios, importação de Excel.
-7. Para uso real na empresa: hospedagem aprovada pela TI (o plano Hobby da Vercel é para uso não comercial) e proteção contra força bruta persistente (hoje é por processo, em memória).
+1. **Destravar a produção na Vercel** (Promote/Undo Rollback, seção 12) e confirmar que https://explo-control.vercel.app mostra as telas novas.
+2. **Segurança antes de seguir com dados reais:** trocar a senha do `explo_app` (e atualizar `DATABASE_URL`/`DIRECT_URL` na Vercel), trocar as senhas dos usuários `@demo.explo` ou criar usuários reais, e separar o banco das versões de teste (Preview).
+3. **Substituir os dados de demonstração** por empresas, CNPJs e materiais reais (pedir a lista ao Rodrigo) — idealmente já com as **telas de cadastro** (empresas, unidades, produtos, vínculos, usuários).
+4. **Obter do Rodrigo:** o restante do prompt mestre (item 12 em diante) e as respostas da seção 9.
+5. **Anexo** do documento na entrada (pedido no item 9 da especificação).
+6. Importação do arquivo do Sicoex, se ele exportar.
+7. Etapas seguintes: produção de emulsão (movimentos `PRODUCAO_ENTRADA`/`PRODUCAO_CONSUMO` já previstos), inventário (`AJUSTE_INVENTARIO`), fechamento semanal, relatórios, importação de Excel.
+8. Para uso real na empresa: hospedagem aprovada pela TI (o plano Hobby da Vercel é para uso não comercial) e proteção contra força bruta persistente (hoje é em memória, por processo).
 
 ## 15. Como rodar localmente
 
@@ -253,7 +290,7 @@ npm install                      # também roda prisma generate
 npx prisma migrate deploy        # cria as tabelas
 npm run db:seed                  # dados FICTÍCIOS de demonstração (opcional)
 npm run dev                      # http://localhost:3000
-npm test                         # 17 testes (precisa de um Postgres para testes)
+npm test                         # 20 testes (precisa de um Postgres para testes)
 ```
 
 ## 16. Forma de trabalhar com o Rodrigo
