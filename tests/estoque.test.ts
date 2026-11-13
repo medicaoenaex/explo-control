@@ -8,9 +8,11 @@ import {
   registrarLancamento,
   resolverDivergencia,
   saldosPorUnidade,
+  transferirDireto,
   validarLancamento,
 } from "@/server/estoque";
 import type { Ator } from "@/server/permissoes";
+import { confrontoSicoex, registrarSaldoSicoex } from "@/server/sicoex";
 
 const db = new PrismaClient();
 afterAll(() => db.$disconnect());
@@ -228,5 +230,55 @@ describe("Transferências e estoque em trânsito", () => {
     await confirmarRecebimento({ transferenciaId: t.id, itens: [{ itemId: t.itens[0].id, quantidadeRecebida: 20 }] }, c.oA, db);
     expect(await saldo(c.A.id, c.ambos.id)).toBe(20);
     expect(await saldo(c.B.id, c.ambos.id)).toBe(0);
+  });
+});
+
+describe("Transferência direta", () => {
+  it("debita a origem e credita o destino na hora, sem trânsito, com rastreio", async () => {
+    await entradaValidada(c, c.A.id, c.ambos.id, 100);
+    const t = await transferirDireto(
+      { origemId: c.A.id, destinoId: c.B.id, dataTransferencia: hoje, documento: "NF 9", itens: [{ produtoId: c.ambos.id, quantidade: 30 }] },
+      c.gA,
+      db,
+    );
+    expect(await saldo(c.A.id, c.ambos.id)).toBe(70);
+    expect(await saldo(c.B.id, c.ambos.id)).toBe(30);
+    expect(await grupo(c.ambos.id)).toEqual({ disponivel: 100, transito: 0, total: 100 });
+    const trf = await db.transferencia.findUniqueOrThrow({ where: { id: t.id }, include: { itens: { include: { movimentos: true } } } });
+    expect(trf.status).toBe("RECEBIDA");
+    expect(trf.itens[0].movimentos.map((m) => m.tipo).sort()).toEqual(["TRANSFERENCIA_ENTRADA", "TRANSFERENCIA_SAIDA"]);
+  });
+
+  it("bloqueia saldo insuficiente, produto sem vínculo no destino e operador sem permissão de envio", async () => {
+    await entradaValidada(c, c.A.id, c.ambos.id, 10);
+    await entradaValidada(c, c.A.id, c.soA.id, 10);
+    const base = { origemId: c.A.id, destinoId: c.B.id, dataTransferencia: hoje };
+    await expect(transferirDireto({ ...base, itens: [{ produtoId: c.ambos.id, quantidade: 11 }] }, c.gA, db)).rejects.toThrow(/Saldo insuficiente/);
+    await expect(transferirDireto({ ...base, itens: [{ produtoId: c.soA.id, quantidade: 1 }] }, c.gA, db)).rejects.toThrow(/destino/);
+    await expect(transferirDireto({ ...base, itens: [{ produtoId: c.ambos.id, quantidade: 1 }] }, c.oA, db)).rejects.toThrow(/permissão/);
+    expect(await saldo(c.A.id, c.ambos.id)).toBe(10);
+    expect(await saldo(c.B.id, c.ambos.id)).toBe(0);
+  });
+});
+
+describe("Confronto Sicoex", () => {
+  it("compara o saldo Sicoex com o saldo diário na mesma data e mostra o consumo a lançar", async () => {
+    const dia = (d: string) => new Date(`2026-11-${d}T12:00:00-03:00`);
+    const m = await registrarLancamento({ tipo: "ENTRADA", unidadeId: c.A.id, produtoId: c.ambos.id, quantidade: 100, dataMovimento: dia("02") }, c.oA, db);
+    await validarLancamento(m.id, c.gA, db);
+    for (const [d, q] of [["03", 10], ["05", 5]] as const) {
+      const cm = await registrarLancamento({ tipo: "CONSUMO", unidadeId: c.A.id, produtoId: c.ambos.id, quantidade: q, dataMovimento: dia(d) }, c.oA, db);
+      await validarLancamento(cm.id, c.gA, db);
+    }
+    await registrarSaldoSicoex({ unidadeId: c.A.id, produtoId: c.ambos.id, data: "2026-11-03", saldo: 90 }, c.oA, db);
+    let [l] = await confrontoSicoex({ unidadeIds: [c.A.id], ultimos: true }, db);
+    expect([Number(l.saldoDiarioNaData), Number(l.diferenca), Number(l.consumoDepois), Number(l.saldoDiarioAtual)]).toEqual([90, 0, 5, 85]);
+
+    // correção do mesmo dia substitui; divergência aparece
+    await registrarSaldoSicoex({ unidadeId: c.A.id, produtoId: c.ambos.id, data: "2026-11-03", saldo: 92 }, c.gA, db);
+    [l] = await confrontoSicoex({ unidadeIds: [c.A.id], ultimos: true }, db);
+    expect(Number(l.diferenca)).toBe(2);
+    expect(await db.saldoSicoex.count({ where: { unidadeId: c.A.id } })).toBe(1);
+    await expect(registrarSaldoSicoex({ unidadeId: c.A.id, produtoId: c.ambos.id, data: "2026-11-03", saldo: 1 }, c.consulta, db)).rejects.toThrow(/permissão/);
   });
 });

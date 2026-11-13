@@ -89,7 +89,7 @@ export function Tabela<T>({ colunas, linhas, chave, vazio = "Nenhum registro enc
 export function Botao({ href, children, variante = "primario" }: { href: string; children: React.ReactNode; variante?: "primario" | "secundario" }) {
   return (
     <Link href={href} className={clsx(
-      "inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition",
+      "inline-flex items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium transition",
       variante === "primario" ? "bg-marca-700 text-white hover:bg-marca-800" : "superficie border hover:bg-black/[0.03]",
     )}>{children}</Link>
   );

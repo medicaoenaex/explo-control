@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  ArrowDownToLine, ArrowLeftRight, Building2, CalendarCheck, ClipboardList, Factory, FileBarChart,
-  Flame, Layers, LayoutDashboard, Package, Warehouse,
+  ArrowDownToLine, ArrowLeftRight, Building2, CalendarCheck, ClipboardList, Factory, Scale, FileBarChart,
+  FileText, Flame, Layers, LayoutDashboard, Package, Warehouse,
 } from "lucide-react";
 
 export type ItemMenu = { href: string; rotulo: string; icone: LucideIcon; pronto: boolean };
@@ -22,12 +22,14 @@ export const MENU: GrupoMenu[] = [
       { href: "/entradas", rotulo: "Entradas", icone: ArrowDownToLine, pronto: true },
       { href: "/transferencias", rotulo: "Transferências", icone: ArrowLeftRight, pronto: true },
       { href: "/consumo", rotulo: "Consumo", icone: Flame, pronto: true },
+      { href: "/notas", rotulo: "Notas fiscais", icone: FileText, pronto: true },
       { href: "/producao", rotulo: "Produção", icone: Factory, pronto: false },
     ],
   },
   {
     titulo: "Controle",
     itens: [
+      { href: "/sicoex", rotulo: "Sicoex", icone: Scale, pronto: true },
       { href: "/inventario", rotulo: "Inventário", icone: ClipboardList, pronto: false },
       { href: "/fechamento", rotulo: "Fechamento semanal", icone: CalendarCheck, pronto: false },
       { href: "/relatorios", rotulo: "Relatórios", icone: FileBarChart, pronto: false },
