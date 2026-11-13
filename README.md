@@ -23,7 +23,7 @@ Nenhum serviço pago é necessário. Roda em qualquer servidor com Node 20+ e Po
 ## Como rodar
 
 ```bash
-cp .env.example .env            # ajuste DATABASE_URL e SESSION_SECRET
+cp .env.example .env            # ajuste DATABASE_URL e DIRECT_URL
 npm install
 npx prisma migrate deploy        # cria as tabelas
 npm run db:seed                  # dados FICTÍCIOS de demonstração
@@ -62,3 +62,10 @@ src/server/auth.ts          login, sessão e logout
 src/app/(app)/              telas autenticadas
 tests/estoque.test.ts       testes das regras
 ```
+
+## Publicar na Vercel (demonstração)
+
+1. Importe o repositório na Vercel (framework: Next.js; o build usa o script `vercel-build`).
+2. Variáveis de ambiente: `DATABASE_URL` (pool, porta 6543, `?pgbouncer=true&connection_limit=1&schema=explo`),
+   `DIRECT_URL` (porta 5432, `?schema=explo`) e `SEED_DEMO=1` para criar a demonstração.
+3. O build aplica as migrações (`prisma migrate deploy`) e, com `SEED_DEMO=1`, cria os dados fictícios se o banco estiver vazio.
