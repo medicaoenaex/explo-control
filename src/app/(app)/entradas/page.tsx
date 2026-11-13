@@ -17,13 +17,13 @@ export default async function PaginaEntradas({ searchParams }: { searchParams: P
     <>
       <Cabecalho
         titulo="Entradas"
-        descricao="Recebimentos de material. Cada entrada fica pendente até ser validada."
+        descricao="Recebimentos de material, inclusive o que chega por transferência de outro paiol. Entradas de nota fiscal ficam pendentes até serem validadas."
         acoes={podeRegistrar ? <Botao href="/entradas/nova"><Plus size={16} /> Nova entrada</Botao> : undefined}
       />
       {aviso && <p role="status" className="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">{aviso}</p>}
       {f.erro && <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">{f.erro}</p>}
       <ListaMovimentos
-        tipos={["ENTRADA"]}
+        tipos={["ENTRADA", "TRANSFERENCIA_ENTRADA"]}
         unidadeIds={ctx.unidadeIds}
         f={f}
         validar={{

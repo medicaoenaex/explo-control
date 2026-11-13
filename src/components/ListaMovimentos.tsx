@@ -21,7 +21,7 @@ export async function ListaMovimentos({ tipos, unidadeIds, f, validar }: {
       documento: f.documento ? { contains: f.documento, mode: "insensitive" } : undefined,
       dataMovimento: { gte: f.de ? new Date(`${f.de}T00:00:00-03:00`) : undefined, lte: f.ate ? new Date(`${f.ate}T23:59:59-03:00`) : undefined },
     },
-    include: { produtoUnidade: { include: { produto: { include: { unidadeMedida: true } }, unidade: true } }, lote: true, criadoPor: true, validadoPor: true },
+    include: { produtoUnidade: { include: { produto: { include: { unidadeMedida: true } }, unidade: true } }, lote: true, criadoPor: true, validadoPor: true, transferenciaItem: { include: { transferencia: { include: { origem: true } } } } },
     orderBy: [{ dataMovimento: "desc" }, { criadoEm: "desc" }],
     take: 300,
   });
@@ -43,7 +43,9 @@ export async function ListaMovimentos({ tipos, unidadeIds, f, validar }: {
         chave={(m) => m.id}
         colunas={[
           { titulo: "Data", celula: (m) => formatarData(m.dataMovimento) },
-          { titulo: "Tipo", celula: (m) => TIPO_MOV[m.tipo], ocultarMobile: true },
+          { titulo: "Tipo", celula: (m) => m.tipo === "TRANSFERENCIA_ENTRADA" && m.transferenciaItem
+            ? <span>Transferência<span className="texto-suave block text-xs">de {m.transferenciaItem.transferencia.origem.nome} · {m.transferenciaItem.transferencia.codigo}</span></span>
+            : TIPO_MOV[m.tipo], ocultarMobile: true },
           { titulo: "Unidade", celula: (m) => m.produtoUnidade.unidade.nome },
           { titulo: "Produto", celula: (m) => <>{m.produtoUnidade.produto.codigo} · {m.produtoUnidade.produto.descricao}{m.lote && <span className="texto-suave text-xs"> · lote {m.lote.numero}</span>}</> },
           { titulo: "Documento", celula: (m) => m.documento ?? "—" },
