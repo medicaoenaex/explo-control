@@ -12,6 +12,7 @@ import { Prisma, type PrismaClient, type StatusTransferencia, type TipoMovimento
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { RegraNegocioError } from "@/lib/erros";
+import { formatarQtd } from "@/lib/formato";
 import { lancamentoSchema, recebimentoSchema, transferenciaSchema } from "@/lib/validacao";
 import { exigir, type Ator } from "./permissoes";
 
@@ -75,7 +76,7 @@ async function garantirSaldo(tx: Tx, produtoUnidadeId: string, loteId: string | 
   const saldo = await saldoDisponivel(tx, produtoUnidadeId, loteId);
   if (saldo.lt(necessario)) {
     throw new RegraNegocioError(
-      `Saldo insuficiente: disponível ${saldo.toString()}, solicitado ${necessario.toString()}.`,
+      `Saldo insuficiente: disponível ${formatarQtd(saldo)}, solicitado ${formatarQtd(necessario)}.`,
       "SALDO_INSUFICIENTE",
     );
   }
@@ -184,6 +185,82 @@ export async function criarTransferencia(entrada: z.input<typeof transferenciaSc
       include: { itens: true },
     });
     await auditar(tx, ator, "TRANSFERENCIA_CRIADA", "Transferencia", trf.id, { codigo: trf.codigo });
+    return trf;
+  });
+}
+
+/**
+ * Transferência direta (pedido do usuário em 13/11/2026): numa única operação debita a origem
+ * e credita o destino com a mesma quantidade, e registra a transferência já como RECEBIDA.
+ * Mantém documento, CNPJs, itens, movimentos de saída/entrada ligados ao item e auditoria.
+ */
+export async function transferirDireto(entrada: z.input<typeof transferenciaSchema>, ator: Ator, db: PrismaClient = prisma) {
+  const dados = transferenciaSchema.parse(entrada);
+  exigir(ator, "transferencia.enviar", dados.origemId);
+
+  return db.$transaction(async (tx) => {
+    const [origem, destino] = await Promise.all([
+      tx.unidade.findUniqueOrThrow({ where: { id: dados.origemId }, include: { empresa: true } }),
+      tx.unidade.findUniqueOrThrow({ where: { id: dados.destinoId }, include: { empresa: true } }),
+    ]);
+    if (destino.situacao !== "ATIVO") throw new RegraNegocioError(`A unidade ${destino.nome} está inativa.`, "UNIDADE_INATIVA");
+
+    const itens = [];
+    const necessidade = new Map<string, { vinculoId: string; loteId: string | null; qtd: Prisma.Decimal }>();
+    for (const it of dados.itens) {
+      const vo = await vinculoAtivo(tx, it.produtoId, origem.id, "origem");
+      const vd = await vinculoAtivo(tx, it.produtoId, destino.id, "destino");
+      const lote = await resolverLote(tx, vo.produto, it.loteNumero || undefined, false);
+      const qtd = D(it.quantidade);
+      itens.push({ produtoId: it.produtoId, loteId: lote?.id ?? null, qtd, origemVinculo: vo.id, destinoVinculo: vd.id });
+      const chave = `${vo.id}:${lote?.id ?? ""}`;
+      const atual = necessidade.get(chave);
+      necessidade.set(chave, { vinculoId: vo.id, loteId: lote?.id ?? null, qtd: (atual?.qtd ?? ZERO).add(qtd) });
+    }
+    for (const vinculoId of [...new Set([...necessidade.values()].map((n) => n.vinculoId))].sort()) await travarVinculo(tx, vinculoId);
+    for (const n of necessidade.values()) await garantirSaldo(tx, n.vinculoId, n.loteId, n.qtd);
+
+    const agora = new Date();
+    const trf = await tx.transferencia.create({
+      data: {
+        codigo: await proximoCodigo(tx, dados.dataTransferencia),
+        status: "RECEBIDA",
+        origemId: origem.id,
+        destinoId: destino.id,
+        cnpjOrigem: origem.empresa.cnpj,
+        cnpjDestino: destino.empresa.cnpj,
+        documento: dados.documento,
+        observacoes: dados.observacoes,
+        dataTransferencia: dados.dataTransferencia,
+        criadoPorId: ator.id,
+        enviadoPorId: ator.id,
+        enviadoEm: agora,
+        recebidoPorId: ator.id,
+        recebidoEm: agora,
+      },
+    });
+    for (const it of itens) {
+      const item = await tx.transferenciaItem.create({
+        data: { transferenciaId: trf.id, produtoId: it.produtoId, loteId: it.loteId, quantidadeEnviada: it.qtd, quantidadeRecebida: it.qtd },
+      });
+      const base = {
+        status: "VALIDADO" as const,
+        loteId: it.loteId,
+        dataMovimento: dados.dataTransferencia,
+        documento: dados.documento ?? trf.codigo,
+        transferenciaItemId: item.id,
+        criadoPorId: ator.id,
+        validadoPorId: ator.id,
+        validadoEm: agora,
+      };
+      await tx.movimento.create({
+        data: { ...base, tipo: "TRANSFERENCIA_SAIDA", produtoUnidadeId: it.origemVinculo, quantidade: it.qtd.neg(), chaveIdempotencia: `TRF:${item.id}:SAIDA` },
+      });
+      await tx.movimento.create({
+        data: { ...base, tipo: "TRANSFERENCIA_ENTRADA", produtoUnidadeId: it.destinoVinculo, quantidade: it.qtd, chaveIdempotencia: `TRF:${item.id}:ENTRADA` },
+      });
+    }
+    await auditar(tx, ator, "TRANSFERENCIA_DIRETA", "Transferencia", trf.id, { codigo: trf.codigo });
     return trf;
   });
 }
