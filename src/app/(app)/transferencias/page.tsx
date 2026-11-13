@@ -1,14 +1,15 @@
 import type { StatusTransferencia } from "@prisma/client";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Plus } from "lucide-react";
+import { pode } from "@/server/permissoes";
 import { prisma } from "@/lib/db";
 import { contexto } from "@/server/contexto";
 import { formatarCnpj, formatarData, formatarQtd } from "@/lib/formato";
 import { STATUS_TRF } from "@/lib/rotulos";
-import { Cabecalho, Campo, Cartao, estiloInput, Filtros, Selo } from "@/components/ui";
+import { Botao, Cabecalho, Campo, Cartao, estiloInput, Filtros, Selo } from "@/components/ui";
 
 export const metadata = { title: "Transferências" };
 
-export default async function PaginaTransferencias({ searchParams }: { searchParams: Promise<{ status?: string; sentido?: string }> }) {
+export default async function PaginaTransferencias({ searchParams }: { searchParams: Promise<{ status?: string; sentido?: string; feita?: string }> }) {
   const f = await searchParams;
   const ctx = await contexto();
   const status = f.status && f.status in STATUS_TRF ? (f.status as StatusTransferencia) : undefined;
@@ -24,7 +25,12 @@ export default async function PaginaTransferencias({ searchParams }: { searchPar
 
   return (
     <>
-      <Cabecalho titulo="Transferências" descricao="Envios entre paióis nos dois sentidos. O destino só recebe o saldo após a conferência." />
+      <Cabecalho
+        titulo="Transferências"
+        descricao="Envios entre paióis nos dois sentidos. O material entra no paiol de destino na hora da transferência."
+        acoes={ctx.unidadeIds.some((id) => pode(ctx.usuario.ator, "transferencia.enviar", id)) ? <Botao href="/transferencias/nova"><Plus size={16} /> Nova transferência</Botao> : undefined}
+      />
+      {f.feita && <p role="status" className="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">Transferência {f.feita} concluída: o material já está no paiol de destino.</p>}
       <Filtros>
         <Campo rotulo="Status">
           <select name="status" defaultValue={f.status ?? ""} className={estiloInput}>
