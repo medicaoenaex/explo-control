@@ -10,7 +10,7 @@ export async function ListaMovimentos({ tipos, unidadeIds, f, validar }: {
   unidadeIds: string[];
   f: { status?: string; de?: string; ate?: string; documento?: string };
   /** Quando informado, lançamentos pendentes ganham o botão "Validar". */
-  validar?: { action: (fd: FormData) => Promise<void>; pode: (unidadeId: string, criadoPorId: string) => boolean };
+  validar?: { action: (fd: FormData) => Promise<void>; pode: (unidadeId: string, criadoPorId: string) => boolean; volta?: string };
 }) {
   const status = f.status && f.status in STATUS_MOV ? (f.status as StatusMovimento) : undefined;
   const movs = await prisma.movimento.findMany({
@@ -53,7 +53,7 @@ export async function ListaMovimentos({ tipos, unidadeIds, f, validar }: {
           { titulo: "Responsável", celula: (m) => <span className="text-xs">{m.criadoPor.nome}{m.validadoPor && <span className="texto-suave block">validado: {m.validadoPor.nome}</span>}</span>, ocultarMobile: true },
           { titulo: "Situação", celula: (m) => <span className="flex flex-wrap items-center gap-2"><Selo tom={STATUS_MOV[m.status].tom}>{STATUS_MOV[m.status].rotulo}</Selo>
             {validar && m.status === "PENDENTE" && validar.pode(m.produtoUnidade.unidadeId, m.criadoPorId) && (
-              <form action={validar.action}><input type="hidden" name="id" value={m.id} />
+              <form action={validar.action}><input type="hidden" name="id" value={m.id} /><input type="hidden" name="volta" value={validar.volta ?? "/entradas"} />
                 <button className="bg-marca-700 hover:bg-marca-800 rounded-md px-2 py-1 text-xs font-medium text-white">Validar</button>
               </form>
             )}</span> },

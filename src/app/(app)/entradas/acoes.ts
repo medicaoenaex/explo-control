@@ -23,15 +23,17 @@ function mensagem(e: unknown): string {
   return "Não foi possível salvar. Tente novamente.";
 }
 
-/** Registra uma entrada (fica pendente de validação). */
+/** Registra uma entrada ou um consumo (fica pendente de validação). */
 export async function registrarEntradaAction(_: EstadoForm, fd: FormData): Promise<EstadoForm> {
   const u = await exigirUsuario();
+  const tipo = texto(fd, "tipo") === "CONSUMO" ? "CONSUMO" : "ENTRADA";
+  const lista = tipo === "CONSUMO" ? "/consumo" : "/entradas";
   const [unidadeId, produtoId] = (texto(fd, "vinculo") ?? "|").split("|");
   if (!unidadeId || !produtoId) return { erro: "Escolha o produto." };
   try {
     await registrarLancamento(
       {
-        tipo: "ENTRADA",
+        tipo,
         unidadeId,
         produtoId,
         quantidade: numeroBr(texto(fd, "quantidade")) as unknown as number,
@@ -47,13 +49,14 @@ export async function registrarEntradaAction(_: EstadoForm, fd: FormData): Promi
     return { erro: mensagem(e) };
   }
   revalidatePath("/", "layout");
-  redirect("/entradas?registrada=1");
+  redirect(`${lista}?registrada=1`);
 }
 
 /** Valida um lançamento pendente: a partir daqui ele entra no saldo. */
 export async function validarAction(fd: FormData) {
   const u = await exigirUsuario();
   const id = texto(fd, "id");
+  const lista = texto(fd, "volta") === "/consumo" ? "/consumo" : "/entradas";
   let erro: string | undefined;
   if (id) {
     try {
@@ -63,5 +66,5 @@ export async function validarAction(fd: FormData) {
     }
   }
   revalidatePath("/", "layout");
-  redirect(erro ? `/entradas?erro=${encodeURIComponent(erro)}` : "/entradas?validada=1");
+  redirect(erro ? `${lista}?erro=${encodeURIComponent(erro)}` : `${lista}?validada=1`);
 }
