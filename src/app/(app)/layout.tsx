@@ -1,3 +1,5 @@
+import { unstable_rethrow } from "next/navigation";
+import { ErroDiagnostico } from "@/components/ErroDiagnostico";
 import { LogOut, Search, FlaskConical } from "lucide-react";
 import { contexto, pendencias } from "@/server/contexto";
 import { prisma } from "@/lib/db";
@@ -9,6 +11,15 @@ import { SeletorUnidade } from "@/components/shell/SeletorUnidade";
 import { sairAction, trocarUnidade } from "./acoes";
 
 export default async function LayoutApp({ children }: { children: React.ReactNode }) {
+  try {
+    return await LayoutConteudo({ children });
+  } catch (e) {
+    unstable_rethrow(e);
+    return <main className="mx-auto max-w-3xl px-4 py-10"><ErroDiagnostico erro={e} /></main>;
+  }
+}
+
+async function LayoutConteudo({ children }: { children: React.ReactNode }) {
   const { usuario, unidade, unidadeIds } = await contexto();
   const [pend, demo] = await Promise.all([pendencias(unidadeIds), prisma.empresa.count({ where: { demonstracao: true } })]);
 
