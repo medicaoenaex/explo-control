@@ -8,6 +8,6 @@ export default defineConfig({
     fileParallelism: false,
     testTimeout: 30000,
     globalSetup: ["tests/setup-global.ts"],
-    env: { DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgresql://explo:explo@localhost:5432/explo_control_test?schema=public" },
+    env: { DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgresql://explo:explo@localhost:5432/explo_control_test?schema=public", DIRECT_URL: process.env.TEST_DATABASE_URL ?? "postgresql://explo:explo@localhost:5432/explo_control_test?schema=public" },
   },
 });
