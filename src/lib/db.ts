@@ -20,6 +20,10 @@ function urlBanco(): string | undefined {
   }
 }
 
-export const prisma = globalForPrisma.prisma ?? new PrismaClient({ datasourceUrl: urlBanco() });
+export const prisma = globalForPrisma.prisma ?? new PrismaClient({
+    datasourceUrl: urlBanco(),
+    // banco remoto: dar folga às transações com trava (padrão do Prisma é 5 s)
+    transactionOptions: { maxWait: 10_000, timeout: 30_000 },
+  });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;

@@ -15,13 +15,24 @@ import {
 } from "../src/server/estoque";
 import type { Ator } from "../src/server/permissoes";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ transactionOptions: { maxWait: 10_000, timeout: 60_000 } });
 const SENHA_DEMO = "Demo@2026";
 
 async function main() {
-  if ((await prisma.empresa.count()) > 0) {
-    console.log("O banco já possui dados. Use `npm run db:reset` para recriar a demonstração.");
-    return;
+  const empresas = await prisma.empresa.findMany({ select: { demonstracao: true } });
+  if (empresas.length > 0) {
+    const soDemo = empresas.every((e) => e.demonstracao);
+    const completa = (await prisma.fechamentoSemanal.count()) > 0; // última etapa do seed
+    if (!soDemo || completa) {
+      console.log("O banco já possui dados. Nada a fazer.");
+      return;
+    }
+    // demonstração interrompida no meio: apaga somente se TODO o conteúdo é de demonstração
+    console.log("Demonstração incompleta encontrada; recriando.");
+    const schema = new URL(process.env.DATABASE_URL ?? "postgresql://x/x").searchParams.get("schema") ?? "public";
+    const tabelas = await prisma.$queryRaw<{ tablename: string }[]>`
+      SELECT tablename FROM pg_tables WHERE schemaname = ${schema} AND tablename <> '_prisma_migrations'`;
+    await prisma.$executeRawUnsafe(`TRUNCATE ${tabelas.map((t) => `"${schema}"."${t.tablename}"`).join(", ")} CASCADE`);
   }
   const senhaHash = await bcrypt.hash(SENHA_DEMO, 12);
 
