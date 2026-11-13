@@ -5,13 +5,15 @@ import { estiloInput } from "@/components/ui";
 
 type Opcao = { valor: string; rotulo: string; unidade: string; lote: boolean };
 
-export function FormEntrada({ opcoes, hoje }: { opcoes: Opcao[]; hoje: string }) {
+export function FormEntrada({ opcoes, hoje, tipo = "ENTRADA" }: { opcoes: Opcao[]; hoje: string; tipo?: "ENTRADA" | "CONSUMO" }) {
+  const consumo = tipo === "CONSUMO";
   const [estado, acao, enviando] = useActionState(registrarEntradaAction, undefined);
   const unidades = [...new Set(opcoes.map((o) => o.unidade))];
   const rotulo = "flex flex-col gap-1.5 text-sm font-medium";
   const input = `${estiloInput} w-full`;
   return (
     <form action={acao} className="superficie grid gap-4 rounded-xl border p-4 sm:grid-cols-2 sm:p-6">
+      <input type="hidden" name="tipo" value={tipo} />
       <label className={`${rotulo} sm:col-span-2`}>Produto e unidade *
         <select name="vinculo" required defaultValue="" className={input}>
           <option value="" disabled>Escolha…</option>
@@ -27,18 +29,20 @@ export function FormEntrada({ opcoes, hoje }: { opcoes: Opcao[]; hoje: string })
       <label className={rotulo}>Quantidade *
         <input name="quantidade" required inputMode="decimal" placeholder="Ex.: 1.250,5" className={input} />
       </label>
-      <label className={rotulo}>Data da entrada *
+      <label className={rotulo}>{consumo ? "Data do consumo *" : "Data da entrada *"}
         <input name="data" type="date" required defaultValue={hoje} max={hoje} className={input} />
       </label>
-      <label className={rotulo}>Nota fiscal / documento
+      <label className={rotulo}>{consumo ? "Documento (ex.: nº do desmonte / NF)" : "Nota fiscal / documento"}
         <input name="documento" maxLength={60} className={input} />
       </label>
       <label className={rotulo}>Lote
         <input name="lote" maxLength={40} placeholder="Obrigatório se o produto exigir" className={input} />
       </label>
-      <label className={`${rotulo} sm:col-span-2`}>Fornecedor
-        <input name="fornecedor" maxLength={120} className={input} />
-      </label>
+      {!consumo && (
+        <label className={`${rotulo} sm:col-span-2`}>Fornecedor
+          <input name="fornecedor" maxLength={120} className={input} />
+        </label>
+      )}
       <label className={`${rotulo} sm:col-span-2`}>Observações
         <textarea name="observacoes" rows={3} maxLength={1000} className={input} />
       </label>
@@ -47,9 +51,9 @@ export function FormEntrada({ opcoes, hoje }: { opcoes: Opcao[]; hoje: string })
       )}
       <div className="flex items-center gap-3 sm:col-span-2">
         <button disabled={enviando} className="bg-marca-700 hover:bg-marca-800 rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
-          {enviando ? "Salvando…" : "Registrar entrada"}
+          {enviando ? "Salvando…" : consumo ? "Registrar consumo" : "Registrar entrada"}
         </button>
-        <p className="texto-suave text-xs">A entrada fica pendente e só soma no estoque depois de validada.</p>
+        <p className="texto-suave text-xs">{consumo ? "O consumo fica pendente e só baixa do estoque depois de validado." : "A entrada fica pendente e só soma no estoque depois de validada."}</p>
       </div>
     </form>
   );

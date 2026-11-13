@@ -13,7 +13,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL") // conexão direta, usada só pelas migrações (em hospedagens com pool, ex.: Supabase)
 }
@@ -101,6 +101,7 @@ model Usuario {
   trfRecebidas    Transferencia[]     @relation("TrfRecebidoPor")
   trfCriadas      Transferencia[]     @relation("TrfCriadoPor")
   divAprovadas    TransferenciaItem[] @relation("DivAprovadoPor")
+  saldosSicoex    SaldoSicoex[]
 }
 
 /// Sessão no servidor: o cookie leva um token aleatório; aqui guardamos só o hash SHA-256.
@@ -154,11 +155,12 @@ model Unidade {
   criadoEm        DateTime @default(now())
   demonstracao    Boolean  @default(false)
 
-  acessos     AcessoUnidade[]
-  produtos    ProdutoUnidade[]
-  trfOrigem   Transferencia[]     @relation("TrfOrigem")
-  trfDestino  Transferencia[]     @relation("TrfDestino")
-  fechamentos FechamentoSemanal[]
+  acessos      AcessoUnidade[]
+  produtos     ProdutoUnidade[]
+  trfOrigem    Transferencia[]     @relation("TrfOrigem")
+  trfDestino   Transferencia[]     @relation("TrfDestino")
+  fechamentos  FechamentoSemanal[]
+  saldosSicoex SaldoSicoex[]
 }
 
 // ───────────────────────── Catálogo de produtos ─────────────────────────
@@ -194,9 +196,10 @@ model Produto {
   criadoPor       Usuario              @relation("ProdutoCriadoPor", fields: [criadoPorId], references: [id])
   demonstracao    Boolean              @default(false)
 
-  vinculos ProdutoUnidade[]
-  lotes    Lote[]
-  itensTrf TransferenciaItem[]
+  vinculos     ProdutoUnidade[]
+  lotes        Lote[]
+  itensTrf     TransferenciaItem[]
+  saldosSicoex SaldoSicoex[]
 
   @@index([descricao])
 }
@@ -350,4 +353,24 @@ model Auditoria {
 
   @@index([entidade, entidadeId])
   @@index([criadoEm])
+}
+
+// ───────────────────────── Sicoex ─────────────────────────
+
+/// Saldo informado no Sicoex (lançado no dia do desmonte) para confronto com o controle diário.
+model SaldoSicoex {
+  id          String   @id @default(cuid())
+  unidadeId   String
+  unidade     Unidade  @relation(fields: [unidadeId], references: [id])
+  produtoId   String
+  produto     Produto  @relation(fields: [produtoId], references: [id])
+  data        DateTime @db.Date
+  saldo       Decimal  @db.Decimal(18, 3)
+  observacoes String?
+  criadoEm    DateTime @default(now())
+  criadoPorId String
+  criadoPor   Usuario  @relation(fields: [criadoPorId], references: [id])
+
+  @@unique([unidadeId, produtoId, data])
+  @@index([data])
 }
