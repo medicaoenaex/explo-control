@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { unstable_rethrow } from "next/navigation";
 import type { Prisma } from "@prisma/client";
 import {
   AlertTriangle, ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Building2, CalendarCheck, ClipboardList, Factory,
@@ -10,6 +11,7 @@ import { emTransitoPorProduto } from "@/server/estoque";
 import { Cabecalho, Campo, Cartao, estiloInput, Filtros, Indicador, Selo } from "@/components/ui";
 import { formatarCnpj, formatarData, formatarDia, formatarQtd } from "@/lib/formato";
 import { STATUS_TRF } from "@/lib/rotulos";
+import { ErroDiagnostico } from "@/components/ErroDiagnostico";
 
 export const metadata = { title: "Painel" };
 
@@ -18,7 +20,7 @@ type Busca = Promise<{ de?: string; ate?: string; empresa?: string; unidade?: st
 const SAIDAS = ["CONSUMO", "TRANSFERENCIA_SAIDA", "PRODUCAO_CONSUMO"] as const;
 const ENTRADAS = ["ENTRADA", "TRANSFERENCIA_ENTRADA", "TRANSFERENCIA_RETORNO", "TRANSFERENCIA_SOBRA", "PRODUCAO_ENTRADA"] as const;
 
-export default async function Painel({ searchParams }: { searchParams: Busca }) {
+async function PainelConteudo({ searchParams }: { searchParams: Busca }) {
   const f = await searchParams;
   const ctx = await contexto();
   const hoje = new Date();
@@ -44,21 +46,21 @@ export default async function Painel({ searchParams }: { searchParams: Busca }) 
   };
 
   const [empresas, categorias, produtos, totalUnidades, totalProdutos, movs, entradas, saidas, trfPendentes, divergentes, recentes, fechamentos, transito] =
-    await Promise.all([
-      prisma.empresa.findMany({ orderBy: { nomeFantasia: "asc" } }),
-      prisma.categoria.findMany({ orderBy: { nome: "asc" } }),
-      prisma.produto.findMany({ orderBy: { codigo: "asc" }, select: { id: true, codigo: true, descricao: true } }),
-      prisma.unidade.count({ where: { situacao: "ATIVO" } }),
-      prisma.produto.count({ where: { situacao: "ATIVO" } }),
-      prisma.movimento.count({ where: filtroMov }),
-      prisma.movimento.count({ where: { ...filtroMov, tipo: { in: [...ENTRADAS] } } }),
-      prisma.movimento.count({ where: { ...filtroMov, tipo: { in: [...SAIDAS] } } }),
-      prisma.transferencia.count({ where: { ...filtroTrf, status: { in: ["RASCUNHO", "PENDENTE_ENVIO", "EM_TRANSITO", "AGUARDANDO_CONFERENCIA"] } } }),
-      prisma.transferencia.count({ where: { ...filtroTrf, status: "DIVERGENTE" } }),
-      prisma.transferencia.findMany({ where: filtroTrf, orderBy: { dataTransferencia: "desc" }, take: 5, include: { origem: true, destino: true, itens: true } }),
-      prisma.fechamentoSemanal.findMany({ where: { unidadeId: { in: ids }, semanaInicio: { lte: hoje } }, orderBy: { semanaInicio: "desc" }, include: { unidade: true } }),
-      emTransitoPorProduto(),
-    ]);
+    await emSequencia([
+      () => prisma.empresa.findMany({ orderBy: { nomeFantasia: "asc" } }),
+      () => prisma.categoria.findMany({ orderBy: { nome: "asc" } }),
+      () => prisma.produto.findMany({ orderBy: { codigo: "asc" }, select: { id: true, codigo: true, descricao: true } }),
+      () => prisma.unidade.count({ where: { situacao: "ATIVO" } }),
+      () => prisma.produto.count({ where: { situacao: "ATIVO" } }),
+      () => prisma.movimento.count({ where: filtroMov }),
+      () => prisma.movimento.count({ where: { ...filtroMov, tipo: { in: [...ENTRADAS] } } }),
+      () => prisma.movimento.count({ where: { ...filtroMov, tipo: { in: [...SAIDAS] } } }),
+      () => prisma.transferencia.count({ where: { ...filtroTrf, status: { in: ["RASCUNHO", "PENDENTE_ENVIO", "EM_TRANSITO", "AGUARDANDO_CONFERENCIA"] } } }),
+      () => prisma.transferencia.count({ where: { ...filtroTrf, status: "DIVERGENTE" } }),
+      () => prisma.transferencia.findMany({ where: filtroTrf, orderBy: { dataTransferencia: "desc" }, take: 5, include: { origem: true, destino: true, itens: true } }),
+      () => prisma.fechamentoSemanal.findMany({ where: { unidadeId: { in: ids }, semanaInicio: { lte: hoje } }, orderBy: { semanaInicio: "desc" }, include: { unidade: true } }),
+      () => emTransitoPorProduto(),
+    ] as const);
 
   // situação do fechamento: semana mais recente iniciada por unidade + a anterior
   const fechPorUnidade = unidadesEscopo.map((u) => ({ unidade: u, semanas: fechamentos.filter((x) => x.unidadeId === u.id).slice(0, 2) }));
@@ -187,4 +189,20 @@ export default async function Painel({ searchParams }: { searchParams: Busca }) 
       </div>
     </>
   );
+}
+
+/** Executa as consultas uma de cada vez: com pool de conexões pequeno (serverless), evita fila e tempo esgotado. */
+async function emSequencia<T extends readonly (() => Promise<unknown>)[]>(fns: T): Promise<{ [K in keyof T]: Awaited<ReturnType<T[K]>> }> {
+  const r: unknown[] = [];
+  for (const fn of fns) r.push(await fn());
+  return r as { [K in keyof T]: Awaited<ReturnType<T[K]>> };
+}
+
+export default async function Painel(props: { searchParams: Busca }) {
+  try {
+    return await PainelConteudo(props);
+  } catch (e) {
+    unstable_rethrow(e); // deixa passar redirect e sinais internos do Next
+    return <ErroDiagnostico erro={e} />;
+  }
 }
